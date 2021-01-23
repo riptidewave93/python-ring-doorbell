@@ -1,10 +1,16 @@
 # coding: utf-8
 # vim:sw=4:ts=4:et:
 """Python Ring Auth Class."""
+import logging
+import hashlib
+import time
 from uuid import uuid4 as uuid
 from requests_oauthlib import OAuth2Session
 from oauthlib.oauth2 import LegacyApplicationClient, TokenExpiredError
 from ring_doorbell.const import OAuth, API_VERSION, TIMEOUT
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class Auth:
@@ -53,8 +59,19 @@ class Auth:
 
     def refresh_tokens(self):
         """Refreshes the auth tokens"""
+        _LOGGER.debug(
+            f"Old access_token md5 was {hashlib.md5(self._oauth.token['access_token'].encode()).hexdigest()}"
+        )
+
         token = self._oauth.refresh_token(
-            OAuth.ENDPOINT, headers={"User-Agent": self.user_agent}
+            OAuth.ENDPOINT, headers={
+                "User-Agent": self.user_agent,
+                "hardware_id": self.hardware_id
+            }
+        )
+
+        _LOGGER.debug(
+            f"New access_token md5 is {hashlib.md5(token['access_token'].encode()).hexdigest()}"
         )
 
         if self.token_updater is not None:
@@ -65,6 +82,10 @@ class Auth:
     def get_hardware_id(self):
         """Get hardware ID."""
         return self.hardware_id
+
+    def update_session_token(self):
+        """Used to update our session token if needed"""
+        self._oauth.token = self.refresh_tokens()
 
     def query(
         self, url, method="GET", extra_params=None, data=None, json=None, timeout=None
@@ -80,7 +101,10 @@ class Auth:
 
         kwargs = {
             "params": params,
-            "headers": {"User-Agent": self.user_agent},
+            "headers": {
+                    "User-Agent": self.user_agent,
+                    "hardware_id": self.hardware_id
+                    },
             "timeout": timeout,
         }
 
@@ -90,12 +114,19 @@ class Auth:
             if data is not None:
                 kwargs["data"] = data
 
+        if (self._oauth.token['expires_at']-10) <= time.time():
+            _LOGGER.debug(
+                f"Oauth session expires in {round(self._oauth.token['expires_at']-time.time())} seconds. Reauthing session."
+            )
+            self.update_session_token()
+
         try:
             req = getattr(self._oauth, method.lower())(url, **kwargs)
         except TokenExpiredError:
-            self._oauth.token = self.refresh_tokens()
+            _LOGGER.debug(
+                "Exception of TokenExpiredError, reauthing session."
+            )
+            self.update_session_token()
             req = getattr(self._oauth, method.lower())(url, **kwargs)
-
-        req.raise_for_status()
 
         return req

@@ -99,11 +99,17 @@ class Ring(object):
             for group in data["device_groups"]:
                 self.groups_data[group["device_group_id"]] = group
 
+    def force_session_reauth():
+        """Due to the active ring issue, we need to see if FORCING a reauth
+        fixes the issue."""
+        self.auth.update_session_token()
+        self.create_session()
+
     def query(
         self, url, method="GET", extra_params=None, data=None, json=None, timeout=None
     ):
         """Query data from Ring API."""
-        return self.auth.query(
+        req = self.auth.query(
             API_URI + url,
             method=method,
             extra_params=extra_params,
@@ -111,6 +117,25 @@ class Ring(object):
             json=json,
             timeout=timeout,
         )
+
+        if req.status_code == 401:
+            _LOGGER.debug(
+                "%s response on query(), creating a new session.", req.status_code
+            )
+            self.auth.update_session_token()
+            self.create_session()
+            req = self.auth.query(
+                API_URI + url,
+                method=method,
+                extra_params=extra_params,
+                data=data,
+                json=json,
+                timeout=timeout,
+            )
+
+        req.raise_for_status()
+
+        return req
 
     def devices(self):
         """Get all devices."""
