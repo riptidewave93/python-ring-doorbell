@@ -100,7 +100,7 @@ class Ring(object):
                 for group in data["device_groups"]:
                     self.groups_data[group["device_group_id"]] = group
 
-    def force_session_reauth():
+    def force_session_reauth(self):
         """Due to the active ring issue, we need to see if FORCING a reauth
         fixes the issue."""
         self.auth.update_session_token()
